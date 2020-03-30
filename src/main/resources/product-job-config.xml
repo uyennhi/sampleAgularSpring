@@ -1,0 +1,101 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:batch="http://www.springframework.org/schema/batch"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:task="http://www.springframework.org/schema/task"
+	xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation="http://www.springframework.org/schema/batch http://www.springframework.org/schema/batch/spring-batch-3.0.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-4.0.xsd
+		http://www.springframework.org/schema/task http://www.springframework.org/schema/task/spring-task-4.0.xsd
+		http://www.springframework.org/schema/context
+		http://www.springframework.org/schema/context/spring-context-4.0.xsd">
+
+	<import resource="classpath:database-context.xml" />
+
+	<!-- Transaction management -->
+	<bean id="transactionManager"
+		class="org.springframework.batch.support.transaction.ResourcelessTransactionManager" />
+
+	<!-- Job repository -->
+	<bean id="jobRepository"
+		class="org.springframework.batch.core.repository.support.MapJobRepositoryFactoryBean" />
+
+	<!-- Job launcher -->
+	<bean id="jobLauncher"
+		class="org.springframework.batch.core.launch.support.SimpleJobLauncher">
+		<property name="jobRepository" ref="jobRepository" />
+	</bean>
+
+	<!-- ItemReader read from database and return rows mapped by rowMapper -->
+	<bean id="databaseItemReader"
+		class="org.springframework.batch.item.database.JdbcCursorItemReader">
+		<property name="dataSource" ref="dataSource" />
+
+		<!-- Set sql query -->
+		<property name="sql" value="SELECT * FROM product LEFT JOIN brand ON product.brand_id = brand.brand_id" />
+
+		<!-- Row mapper -->
+		<property name="rowMapper">
+			<bean class="com.magrabbit.batch.ProductRowMapper" />
+		</property>
+	</bean>
+
+	<!-- ItemWriter writing to csv file -->
+	<bean id="flatFileItemWriter"
+		class="org.springframework.batch.item.file.FlatFileItemWriter" scope="step">
+		<property name="resource" ref="outputResource" />
+
+		<!-- Set header -->
+		<property name="headerCallback" ref="headerCallback" />
+
+		<!-- An Aggregator to convert an object into a list of strings separate -->
+		<property name="lineAggregator">
+			<bean
+				class="org.springframework.batch.item.file.transform.DelimitedLineAggregator">
+				<property name="delimiter" value="," />
+				<property name="fieldExtractor">
+
+					<!-- returns the value of the product via rowMapper -->
+					<bean
+						class="org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor">
+						<property name="names"
+							value="productId, productName, quantity, price, brandEntity.brandId, brandEntity.brandName, saleDate, image, description" />
+					</bean>
+				</property>
+			</bean>
+		</property>
+	</bean>
+
+	<!-- Set output resource -->
+	<bean id="outputResource" class="org.springframework.core.io.FileSystemResource">
+		<constructor-arg value="C:/Users/Tom Cu/Desktop/Pilot Project/Product.csv" />
+	</bean>
+
+	<!-- Set row header -->
+	<bean id="headerCallback"
+		class="com.magrabbit.batch.ProductHeader" />
+
+	<!-- Option JobExecutListener to execute logic before and after the job -->
+	<bean id="jobListener"
+		class="com.magrabbit.batch.ProductJobListener" />
+
+	<!-- ItemProcessor to execute logic before writing to output -->
+	<bean id="itemProcessor"
+		class="com.magrabbit.batch.ProductItemProcessor" />
+
+	<!-- Config Job -->
+	<batch:job id="productJob">
+		<batch:step id="step1">
+
+			<!-- commit-interval: The quantity limit in the chuck goes into ItemProcessor -->
+			<batch:tasklet transaction-manager="transactionManager">
+				<batch:chunk reader="databaseItemReader"
+					writer="flatFileItemWriter" processor="itemProcessor"
+					commit-interval="5" />
+			</batch:tasklet>
+		</batch:step>
+		<batch:listeners>
+			<batch:listener ref="jobListener" />
+		</batch:listeners>
+	</batch:job>
+</beans>
